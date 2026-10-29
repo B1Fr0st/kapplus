@@ -45,11 +45,11 @@ await fs.mkdir(path.join(output, "assets"), { recursive: true });
 for (const filename of ["app.js", "style.css"]) {
   await fs.copyFile(path.join(root, "docs", "site", filename), path.join(output, "assets", filename));
 }
-const html = (await fs.readFile(path.join(root, "docs", "site", "index.html"), "utf8"))
+const template = (await fs.readFile(path.join(root, "docs", "site", "index.html"), "utf8"))
   .replaceAll("__KAPPLUS_VERSION__", metadata.version);
-await fs.writeFile(path.join(output, "index.html"), html);
+await fs.writeFile(path.join(output, "index.html"), template.replaceAll("__KAPPLUS_ROOT__", "./"));
 const versionDirectory = path.join(output, metadata.name, metadata.version);
 await fs.mkdir(versionDirectory, { recursive: true });
-await fs.writeFile(path.join(versionDirectory, "index.html"), html);
+await fs.writeFile(path.join(versionDirectory, "index.html"), template.replaceAll("__KAPPLUS_ROOT__", "../../"));
 await fs.writeFile(path.join(output, "assets", "package.json"), JSON.stringify(data));
 console.log(`Built ${metadata.name} ${metadata.version} docs: ${api.length} API entries, ${guides.length} guides → ${output}`);

@@ -2,7 +2,7 @@
   "name": "kapplus",
   "version": "0.1.0",
   "description": "Compile and publish asset-backed ProcessingJS projects to Khan Academy",
-  "homepage": "https://kapplus-docs.aquaboot22.chatgpt.site",
+  "homepage": "https://b1fr0st.github.io/kapplus/",
   "repository": { "type": "git", "url": "https://github.com/B1Fr0st/kapplus.git" },
   "keywords": ["khan-academy", "processingjs", "webgl", "game-development"],
   "type": "module",

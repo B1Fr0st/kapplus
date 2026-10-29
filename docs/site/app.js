@@ -1,4 +1,4 @@
-const data = await fetch("/assets/package.json").then(response => {
+const data = await fetch(new URL("./package.json", import.meta.url)).then(response => {
   if (!response.ok) throw new Error("Package documentation could not be loaded");
   return response.json();
 });

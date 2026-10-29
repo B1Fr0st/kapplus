@@ -293,7 +293,7 @@ try {
     });
   } else if (options.command === "docs") {
     const metadata = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
-    console.log(metadata.homepage || "https://kapplus-docs.aquaboot22.chatgpt.site");
+    console.log(metadata.homepage || "https://b1fr0st.github.io/kapplus/");
   } else if (options.command === "publish") {
     await publish(options);
   } else {

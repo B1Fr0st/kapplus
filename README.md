@@ -4,7 +4,7 @@ KAP+ is a compiler, runtime library, and development tool for Khan Academy
 ProcessingJS projects. Split game logic into JavaScript modules, import assets,
 and preview the compiled program in Khan's actual sandbox.
 
-[Documentation](https://kapplus-docs.aquaboot22.chatgpt.site) ·
+[Documentation](https://b1fr0st.github.io/kapplus/) ·
 [Source](https://github.com/B1Fr0st/kapplus) ·
 [CI](https://github.com/B1Fr0st/kapplus/actions/workflows/ci.yml)
 
@@ -135,12 +135,16 @@ npm run build
 npm test
 npm run test:install
 npm run test:khan
+npm run docs:build
 ```
 
-The final command needs Chromium and internet access. It verifies watched
+The Khan check needs Chromium and internet access. It verifies watched
 module edits and error recovery in the real Khan sandbox, then compares every
 canvas pixel against an independent publication run. CI tests clean installs on
 Linux, macOS, and Windows, with Node 20, 22, and 24 covered on Linux.
+
+Documentation is built into `docs/dist` and deployed to GitHub Pages by the
+`docs.yml` workflow when documentation or its build inputs change on `main`.
 
 Application projects and their media are maintained separately. This repository
 contains only the reusable SDK, generated test fixtures, documentation, and CI.
