@@ -100,7 +100,7 @@ Returns a manifest and bootstrap. The manifest contains the source SHA-256, per-
   { id: "publishChunks", category: "Node API", signature: "publishChunks(options) → Promise<ChunkPublishResult>", summary: "Publish immutable GitHub releases and verify their jsDelivr bytes.", body: `Pass source, projectName, projectRoot, outDir, publish, and an optional log callback. publish contains repository, branch, and chunks (auto or an integer). Git and an authenticated GitHub CLI are required.
 
 The result includes bootstrap, manifest, repositoryUrl, chunkCommit, publishCommit, releaseTag, and outputDirectory. The stable loader selects the current bootstrap, whose chunks are pinned to immutable tags. Progress and CDN verification complete before success is reported. This API does not save a Khan program.` },
-  { id: "startDevServer", category: "Node API", signature: "startDevServer(options?) → Promise<DevServer>", summary: "Watch source and assets with a real Khan preview and diagnostics page.", body: `Options are project, port, host, preview, headless, and onStatus. Defaults are kapplus.json, port 4173, host 127.0.0.1, and preview khan. Port 0 selects an available port.
+  { id: "startDevServer", category: "Node API", signature: "startDevServer(options?) → Promise<DevServer>", summary: "Watch source and assets with a real Khan preview and diagnostics page.", body: `Options are project, port, host, preview, headless, and onStatus. Defaults are kapplus.json, port 4173, host 127.0.0.1, and preview khan. If the default port is busy, an available port is selected automatically. Explicitly requesting a busy port fails with an actionable error. Port 0 always selects an available port.
 
 \`\`\`js
 import { startDevServer } from "kapplus";
@@ -175,7 +175,7 @@ Generated khan/program.js contains the whole runtime and application. Large gene
 
 KAPPlus.createNetwork() obtains the browser networking context lazily. Direct requests retain ordinary CORS restrictions. A small server-side proxy can perform upstream requests and add CORS headers for the Khan origin.
 
-The standalone package includes a deployable Cloudflare Worker in workers/network-proxy. Set its allowed target origins, then deploy with Wrangler. It streams request and response bodies, uses no database or storage binding, and disables request logs by default. See [the proxy starter](https://github.com/B1Fr0st/kapplus/tree/v0.1.0/workers/network-proxy) for configuration and protocol details.
+The standalone package includes a deployable Cloudflare Worker in workers/network-proxy. Set its allowed target origins, then deploy with Wrangler. It streams request and response bodies, uses no database or storage binding, and disables request logs by default. See [the proxy starter](https://github.com/B1Fr0st/kapplus/tree/v0.1.1/workers/network-proxy) for configuration and protocol details.
 
 Create one client for a feature, reuse it, and consume or cancel responses. HTTP errors return native Response objects; transport and proxy failures reject. Explicit JSON serialization keeps the wire format predictable. Use an AbortSignal for cancellation or close the client when finished. A Khan restart closes old clients automatically.
 

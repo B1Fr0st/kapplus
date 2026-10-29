@@ -29,6 +29,25 @@ describe("KAP+ chunk loader lifecycle", () => {
     scripts[0]!.onload();
     expect(started).toHaveLength(1);
     expect(started[0]).toContain("secondProgram();");
+    expect(nativeWindow).toMatchObject({ __kapplusLoaderStatus: "ready", __kapplusLoaderBuildId: "second" });
+  });
+
+  it("reports initialization failures without marking the build ready", () => {
+    let script: { onload(): void };
+    function FunctionType() { return () => ({ setup() { throw new Error("broken setup"); } }); }
+    const nativeWindow = {
+      Processing: { getInstanceById: () => ({}) }, Object, Reflect, Function: FunctionType,
+      __kapplusPublishChunks: { failed: ["program();"] },
+    };
+    const document = {
+      defaultView: nativeWindow, createElement: () => ({}),
+      head: { appendChild(value: typeof script) { script = value; } },
+    };
+    const sandbox = vm.createContext({ getSound: () => ({ audio: { ownerDocument: document } }) });
+    vm.runInContext(bootstrapSource("failed", ["https://example.test/failed.js"]), sandbox);
+    script!.onload();
+    expect(nativeWindow).toMatchObject({ __kapplusLoaderStatus: "error: Error: broken setup" });
+    expect(nativeWindow).not.toHaveProperty("__kapplusLoaderBuildId");
   });
 
   it("stops an obsolete live-bootstrap search from scheduling more CDN requests", () => {

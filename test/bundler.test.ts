@@ -24,6 +24,20 @@ async function project(files: Record<string, string | Buffer>): Promise<string> 
 }
 
 describe("JavaScript project modules", () => {
+  it("retains script callback declarations in a CommonJS consumer", async () => {
+    const manifest = await project({
+      "package.json": '{"type":"commonjs"}',
+      "main.js": "function setup(){frameRate(60);} var draw=function(){background(42);};",
+    });
+    const analysis = await analyzeProject(manifest);
+    const calls: number[] = [];
+    const sandbox = vm.createContext({ frameRate: (value: number) => calls.push(value), background: (value: number) => calls.push(value) });
+    vm.runInContext(analysis.sourceWithoutImports, sandbox);
+    sandbox.setup(); sandbox.draw();
+    expect(calls).toEqual([60, 42]);
+    expect((await compileProject(manifest)).khanProgram).toContain("draw=");
+  });
+
   it("bundles nested imports, re-exports, shared state, JSON, and side effects once", async () => {
     const manifest = await project({
       "main.js": `import "./game/start.js";

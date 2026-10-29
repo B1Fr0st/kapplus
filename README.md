@@ -17,7 +17,7 @@ empty project directory:
 mkdir my-game
 cd my-game
 npm init -y
-npm install --save-dev https://github.com/B1Fr0st/kapplus/releases/download/v0.1.0/kapplus-0.1.0.tgz
+npm install --save-dev https://github.com/B1Fr0st/kapplus/releases/download/v0.1.1/kapplus-0.1.1.tgz
 npx kapplus init .
 npx kapplus install-browser
 npx kapplus dev
@@ -71,7 +71,9 @@ saved. The development page identifies the actual Khan runtime version.
 The default is the real Khan preview. `--preview local` explicitly selects a
 local ProcessingJS compatibility preview, which can differ from Khan.
 `--headless` runs the Khan preview without a visible Chromium window;
-`--port 4174` changes the local development page's port.
+`--port 4174` changes the local development page's port. If the default port
+4173 is busy, dev selects an available port and prints its URL. An explicitly
+requested busy port produces an error with a suggestion to use `--port 0`.
 
 ## Runtime library
 

@@ -20,6 +20,18 @@ async function temporaryRoot(): Promise<string> {
 }
 
 describe("kapplus init", () => {
+  it.each(["commonjs", "module"])("compiles the untouched starter inside a %s npm project", async (type) => {
+    const project = await temporaryRoot();
+    const packageFile = path.join(project, "package.json");
+    const contents = JSON.stringify({ name: "consumer", private: true, type });
+    await fs.writeFile(packageFile, contents);
+    await initializeProject({ directory: project, name: "Untouched starter" });
+    const compiled = await compileProject(path.join(project, "kapplus.json"));
+    expect(compiled.khanProgram).toContain("draw=");
+    expect(compiled.khanProgram).toContain("Untouched starter");
+    expect(await fs.readFile(packageFile, "utf8")).toBe(contents);
+  });
+
   it("creates a project that compiles immediately", async () => {
     const parent = await temporaryRoot();
     const project = path.join(parent, "my-game");

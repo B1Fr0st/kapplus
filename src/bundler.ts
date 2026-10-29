@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { build, formatMessages, type BuildFailure } from "esbuild";
+import { build, formatMessages, type BuildFailure, type Loader } from "esbuild";
 import ts from "typescript";
 import { loadAsset } from "./assets.js";
 import type { KapPlusAsset, KapPlusManifest } from "./types.js";
@@ -46,11 +46,12 @@ export async function bundleProject(entryPath: string, manifest: KapPlusManifest
     throw error;
   });
   const projectRoot = await fs.realpath(path.dirname(entryPath));
+  const realEntry = await fs.realpath(entryPath);
   const assets = new Map<string, { name: string; data: Promise<KapPlusAsset> }>();
   try {
     const result = await build({
       absWorkingDir: projectRoot,
-      entryPoints: [entryPath],
+      entryPoints: [realEntry],
       bundle: true,
       write: false,
       format: "esm",
@@ -58,9 +59,25 @@ export async function bundleProject(entryPath: string, manifest: KapPlusManifest
       target: "es2015", // TypeScript subsequently lowers the flattened bundle to ES5.
       charset: "utf8",
       metafile: true,
+      // Processing discovers callbacks by name rather than ESM references.
+      // Preserve script declarations here; the final optimizer retains callbacks.
+      treeShaking: false,
       logLevel: "silent",
       legalComments: "inline",
       plugins: [{
+        name: "kapplus-entry",
+        setup(builder) {
+          builder.onLoad({ filter: /\.[cm]?[jt]sx?$/, namespace: "file" }, args => {
+            if (args.path !== realEntry) return;
+            const extension = path.extname(realEntry);
+            const loader: Loader = extension === ".tsx" ? "tsx" : /\.[cm]?ts$/.test(extension) ? "ts" : extension === ".jsx" ? "jsx" : "js";
+            // A sketch's format is independent of the enclosing npm package.
+            // Without this marker, type:commonjs wraps a plain starter in a
+            // synthetic default export instead of exposing its callbacks.
+            return { contents: source + "\nexport {};\n", loader, resolveDir: path.dirname(realEntry) };
+          });
+        },
+      }, {
         name: "kapplus-assets",
         setup(builder) {
           builder.onResolve({ filter: /\.(obj|glb|png|mp3)$/i }, async args => {

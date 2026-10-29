@@ -356,18 +356,22 @@ export class KhanBrowserSession {
     );
   }
 
-  async waitForKapPlusLoader(timeoutMs = 60_000): Promise<string> {
+  async waitForKapPlusLoader(timeoutMs = 60_000, expectedBuildId?: string): Promise<string> {
     const page = await this.requirePage();
     const deadline = Date.now() + Math.max(1_000, timeoutMs);
     while (Date.now() < deadline) {
       for (const frame of page.frames()) {
-        const status = await frame.evaluate(() => {
-          return (globalThis as typeof globalThis & {
+        const loaded = await frame.evaluate(() => {
+          const root = globalThis as typeof globalThis & {
             __kapplusLoaderStatus?: unknown;
-          }).__kapplusLoaderStatus;
+            __kapplusLoaderBuildId?: unknown;
+          };
+          return { status: root.__kapplusLoaderStatus, buildId: root.__kapplusLoaderBuildId };
         }).catch(() => undefined);
-        if (status === "ready") return status;
-        if (typeof status === "string" && status !== "loading") {
+        const status = loaded?.status;
+        if (status === "ready") {
+          if (!expectedBuildId || loaded?.buildId === expectedBuildId) return status;
+        } else if (typeof status === "string" && !status.startsWith("loading")) {
           throw new Error(`KAP+ loader failed in Khan Academy: ${status}`);
         }
       }

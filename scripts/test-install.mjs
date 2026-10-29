@@ -33,11 +33,14 @@ try {
   }
   const consumer = path.join(temporary, "consumer");
   await fs.mkdir(consumer);
-  await fs.writeFile(path.join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));
+  await fs.writeFile(path.join(consumer, "package.json"), JSON.stringify({ private: true, type: "commonjs" }));
   await run(["install", "--omit=dev", "--no-audit", "--no-fund", path.join(temporary, details.filename)], consumer);
   await run(["exec", "--offline", "--", "kapplus", "--help"], consumer);
   await run(["exec", "--offline", "--", "kapplus", "init", "game", "--name", "Installed SDK"], consumer);
   const game = path.join(consumer, "game");
+  // Exercise the actual onboarding output before replacing it with a fixture.
+  await run(["exec", "--offline", "--", "kapplus", "check", "--project", "game/kapplus.json"], consumer);
+  await run(["exec", "--offline", "--", "kapplus", "build", "--project", "game/kapplus.json"], consumer);
   await fs.writeFile(path.join(game, "movement.js"), "export const step = 4;\n");
   await fs.writeFile(path.join(game, "main.js"), 'import { step } from "./movement.js"; export function draw() { background(step); }\n');
   await run(["exec", "--offline", "--", "kapplus", "check", "--project", "game/kapplus.json"], consumer);

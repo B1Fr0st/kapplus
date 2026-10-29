@@ -1,8 +1,9 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import http from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { startDevServer, type DevServer } from "../src/dev.js";
+import { startDevServer, type DevOptions, type DevServer } from "../src/dev.js";
 
 const servers: DevServer[] = [];
 const roots: string[] = [];
@@ -11,7 +12,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => fs.rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(broken = false) {
+async function fixture(broken = false, options: DevOptions = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "kapplus-dev-test-"));
   roots.push(root);
   await fs.writeFile(path.join(root, "kapplus.json"), JSON.stringify({ name: "Watch fixture", entry: "main.js", outDir: "dist" }));
@@ -19,12 +20,41 @@ async function fixture(broken = false) {
     ? 'import { level } from "./missing.js"; export function draw() { background(level); }'
     : 'import { level } from "./scene.js"; export function draw() { background(level); }');
   await fs.writeFile(path.join(root, "scene.js"), "export const level = 3;");
-  const server = await startDevServer({ project: path.join(root, "kapplus.json"), preview: "local", port: 0 });
+  const server = await startDevServer({ project: path.join(root, "kapplus.json"), preview: "local", port: 0, ...options });
   servers.push(server);
   return { server, root };
 }
 
 describe("development server", { timeout: 20000 }, () => {
+  it("selects an available port when the default port is occupied", async () => {
+    const blocker = http.createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once("error", (error: NodeJS.ErrnoException) => error.code === "EADDRINUSE" ? resolve() : reject(error));
+      blocker.listen(4173, "127.0.0.1", resolve);
+    });
+    try {
+      const { server } = await fixture(false, { port: undefined });
+      await server.ready;
+      expect(new URL(server.url).port).not.toBe("4173");
+      expect((await fetch(server.url + "/api/status")).status).toBe(200);
+    } finally {
+      if (blocker.listening) await new Promise<void>((resolve, reject) => blocker.close(error => error ? reject(error) : resolve()));
+    }
+  });
+
+  it("reports an explicitly requested busy port without switching ports", async () => {
+    const blocker = http.createServer();
+    await new Promise<void>(resolve => blocker.listen(0, "127.0.0.1", resolve));
+    const address = blocker.address();
+    if (!address || typeof address === "string") throw new Error("Missing test port");
+    try {
+      await expect(fixture(false, { port: address.port })).rejects.toThrow(/already in use.*--port 0/);
+      expect(blocker.listening).toBe(true);
+    } finally {
+      await new Promise<void>((resolve, reject) => blocker.close(error => error ? reject(error) : resolve()));
+    }
+  });
+
   it("watches imported modules, retains a successful build on error, and recovers", async () => {
     const { server, root } = await fixture();
     await server.ready;

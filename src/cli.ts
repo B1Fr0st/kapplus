@@ -24,7 +24,7 @@ interface CliOptions {
   timeoutMs: number;
   yes: boolean;
   publishKhan: boolean;
-  port: number;
+  port?: number;
   preview: "khan" | "local";
   headless: boolean;
 }
@@ -60,7 +60,6 @@ export function parseArguments(arguments_: string[]): CliOptions {
       timeoutMs: 120_000,
       yes: false,
       publishKhan: false,
-      port: 4173,
       preview: "khan",
       headless: false,
     };
@@ -75,7 +74,7 @@ export function parseArguments(arguments_: string[]): CliOptions {
   let timeoutMs = command === "auth" || command === "publish" ? 10 * 60_000 : 120_000;
   let yes = false;
   let publishKhan = false;
-  let port = 4173;
+  let port: number | undefined;
   let preview: "khan" | "local" = "khan";
   let headless = false;
   for (let index = 1; index < arguments_.length; index++) {
@@ -273,6 +272,9 @@ try {
       },
     });
     console.log(`KAP+ dev: ${server.url}`);
+    if (options.port === undefined && new URL(server.url).port !== "4173") {
+      console.log("Default port 4173 is busy; using an available port.");
+    }
     console.log(options.preview === "khan"
       ? "Interactive preview uses the actual Khan Academy sandbox; no program is saved."
       : "Local ProcessingJS compatibility preview; use the default Khan mode for publication parity.");

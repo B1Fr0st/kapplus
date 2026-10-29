@@ -116,12 +116,13 @@ var loaderStart = function() {
   var body = "with(p){return(function(){" + chunks.join("") +
     ";return{" + returns.join(",") + "};}).call(p);}";
   var runner = ReflectType[joinLoaderWords("con", "struct")](FunctionType, ["p", body]);
-  loaderSetState("ready");
   var handlers = runner(scope);
   loaderHandlers = handlers;
   if (handlers.setup) {
     handlers.setup.call(instance);
   }
+  loaderWindow[joinLoaderWords("__kapplusLoader", "BuildId")] = loaderBuildId;
+  loaderSetState("ready");
 };
 var loaderLoadNext = function() {
   if (!loaderIsCurrent()) { return; }

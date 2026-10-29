@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { startDevServer } from "../dist/index.js";
+import { initializeProject, startDevServer } from "../dist/index.js";
 import { KhanBrowserSession } from "../dist/browser-session.js";
 import { buildChunkBundle } from "../dist/chunks.js";
 import { loadAsset } from "../dist/assets.js";
@@ -45,11 +45,8 @@ async function expectCanvas(level) {
 }
 
 try {
-  await fs.writeFile(path.join(project, "kapplus.json"), JSON.stringify({ name: "Khan preview parity", entry: "main.js", outDir: "dist", canvas: { width: 160, height: 160 } }));
-  await fs.writeFile(path.join(project, "main.js"), `import { level } from "./game.js";
-    export function setup() { frameRate(20); }
-    export function draw() { background(level); }`);
-  await fs.writeFile(path.join(project, "game.js"), "export const level = 30;");
+  await fs.writeFile(path.join(project, "package.json"), '{"private":true,"type":"commonjs"}');
+  await initializeProject({ directory: project, name: "Khan preview parity" });
   dev = await startDevServer({ project: path.join(project, "kapplus.json"), port: 0, headless: true,
     onStatus: state => console.log(JSON.stringify(state)) });
   let startupTimer;
@@ -63,9 +60,25 @@ try {
   assert(status.runtime.version, "The actual deployed Khan runtime must identify its version");
   assert(status.bootstrapBytes < 20000);
   assert(status.sourceBytes > status.bootstrapBytes);
+  await until(async () => {
+    const response = await fetch(dev.url + "/api/canvas.png");
+    if (!response.ok) return false;
+    const bytes = Buffer.from(await response.arrayBuffer());
+    const values = await pixels(bytes, "starter");
+    if (values.length !== 400 * 400 || !values.includes(0x121720ff) || !values.includes(0x65c2ffff)) return false;
+    await fs.writeFile(path.join(artifacts, "starter-khan.png"), bytes);
+    return true;
+  }, "The untouched CommonJS starter did not render in Khan");
+  console.log("Untouched CommonJS starter rendered in the real Khan sandbox.");
+
+  await fs.writeFile(path.join(project, "game.js"), "export const level = 30;");
+  await fs.writeFile(path.join(project, "kapplus.json"), JSON.stringify({ name: "Khan preview parity", entry: "main.js", outDir: "dist", canvas: { width: 160, height: 160 } }));
+  await fs.writeFile(path.join(project, "main.js"), `import { level } from "./game.js";
+    export function setup() { frameRate(20); }
+    export function draw() { background(level); }`);
   await expectCanvas(30);
 
-  const before = status.buildId;
+  const before = dev.getStatus().buildId;
   await fs.writeFile(path.join(project, "game.js"), "export const level = 73;");
   await until(() => dev.getStatus().phase === "ready" && dev.getStatus().buildId !== before, "Imported module edit was not rebuilt");
   await expectCanvas(73);
@@ -101,11 +114,8 @@ try {
   assert.equal(editor.code, bundle.bootstrap);
   // Both sides must start from a clean sandbox. The editor's hot injector can
   // preserve callback closures even on its first programmatic source update.
-  for (const frame of page.frames().filter(frame => frame.url().includes("/computer-programming/exec/pjs"))) {
-    await frame.evaluate(() => { globalThis.__kapplusLoaderStatus = "loading"; });
-  }
   await reference.restart(500);
-  await reference.waitForKapPlusLoader(30000);
+  await reference.waitForKapPlusLoader(30000, bundle.manifest.buildId);
   const frame = page.frames().find(frame => frame.url().includes("/computer-programming/exec/pjs"));
   assert(frame);
   const matched = await until(async () => {

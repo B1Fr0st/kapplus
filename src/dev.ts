@@ -146,16 +146,8 @@ export async function startDevServer(options: DevOptions = {}): Promise<DevServe
         if (initial.errors.length) throw new Error(initial.errors.join("\n"));
         // Khan's editor can retain callback closures when only the bootstrap's
         // build ID changes. A clean restart matches publication semantics.
-        const browserPage = await session.getPage();
-        for (const frame of browserPage.frames().filter(frame => frame.url().includes("/computer-programming/exec/pjs"))) {
-          await frame.evaluate(() => {
-            const root = globalThis as typeof globalThis & { __kapplusLoaderStatus?: string; __kapplusLoaderError?: unknown };
-            root.__kapplusLoaderStatus = "loading";
-            root.__kapplusLoaderError = undefined;
-          });
-        }
         await session.restart(500);
-        await session.waitForKapPlusLoader(30000);
+        await session.waitForKapPlusLoader(30000, bundle.manifest.buildId);
         const current = await session.getState();
         const errors = current.console.filter(entry => entry.level === "error" && !isKnownKhanConsoleNoise(entry.text));
         if (current.errors.length || errors.length) throw new Error([...current.errors, ...errors.map(entry => entry.text)].join("\n"));
@@ -262,9 +254,26 @@ export async function startDevServer(options: DevOptions = {}): Promise<DevServe
       response.end(error instanceof Error ? error.message : String(error));
     }
   });
+  const listen = (candidate: number) => new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => { server.off("listening", onListening); reject(error); };
+    const onListening = () => { server.off("error", onError); resolve(); };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(candidate, host);
+  });
   try {
-    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(port, host, resolve); });
-  } catch (error) { await watcher.close(); throw error; }
+    try { await listen(port); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE" || options.port !== undefined) throw error;
+      await listen(0);
+    }
+  } catch (error) {
+    await watcher.close();
+    if ((error as NodeJS.ErrnoException).code === "EADDRINUSE") {
+      throw new Error(`Development port ${port} is already in use. Choose another --port or use --port 0 for an available port.`);
+    }
+    throw error;
+  }
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Development server did not acquire a TCP port");
   const api: DevServer = {
