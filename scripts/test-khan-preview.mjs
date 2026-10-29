@@ -99,12 +99,19 @@ try {
   });
   const editor = await reference.setCode(bundle.bootstrap, 500);
   assert.equal(editor.code, bundle.bootstrap);
+  // Both sides must start from a clean sandbox. The editor's hot injector can
+  // preserve callback closures even on its first programmatic source update.
+  for (const frame of page.frames().filter(frame => frame.url().includes("/computer-programming/exec/pjs"))) {
+    await frame.evaluate(() => { globalThis.__kapplusLoaderStatus = "loading"; });
+  }
+  await reference.restart(500);
   await reference.waitForKapPlusLoader(30000);
   const frame = page.frames().find(frame => frame.url().includes("/computer-programming/exec/pjs"));
   assert(frame);
   const matched = await until(async () => {
     const url = await frame.locator("#output-canvas").evaluate(canvas => canvas.toDataURL("image/png"));
     const bytes = Buffer.from(url.split(",")[1], "base64");
+    await fs.writeFile(path.join(artifacts, "publication-khan.png"), bytes);
     const values = await pixels(bytes, "reference");
     return values.length === final.values.length && values.every((pixel, index) => pixel === final.values[index]) ? bytes : false;
   }, "Development and publication Khan canvases differ");
@@ -112,7 +119,8 @@ try {
   assert.deepEqual((await reference.getState()).errors, []);
   console.log("Khan parity passed: real sandbox/version, verified chunks, module hot rebuild, error recovery, and identical publication pixels.");
 } catch (error) {
-  await fs.writeFile(path.join(artifacts, "khan-error.json"), JSON.stringify({ error: String(error), stack: error.stack, status: dev?.getStatus() }, null, 2));
+  const referenceState = await reference?.getState().catch(failure => ({ error: String(failure) }));
+  await fs.writeFile(path.join(artifacts, "khan-error.json"), JSON.stringify({ error: String(error), stack: error.stack, status: dev?.getStatus(), reference: referenceState }, null, 2));
   throw error;
 } finally {
   await reference?.close();

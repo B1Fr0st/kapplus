@@ -150,7 +150,7 @@ export async function startDevServer(options: DevOptions = {}): Promise<DevServe
         for (const frame of browserPage.frames().filter(frame => frame.url().includes("/computer-programming/exec/pjs"))) {
           await frame.evaluate(() => {
             const root = globalThis as typeof globalThis & { __kapplusLoaderStatus?: string; __kapplusLoaderError?: unknown };
-            root.__kapplusLoaderStatus = "loading development rebuild";
+            root.__kapplusLoaderStatus = "loading";
             root.__kapplusLoaderError = undefined;
           });
         }

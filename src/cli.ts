@@ -249,8 +249,8 @@ try {
       const destination = relative.startsWith("..") ? initialized.rootDir : relative || ".";
       console.log(`  cd ${JSON.stringify(destination)}`);
     }
-    console.log("  kapplus check");
-    console.log("  kapplus build");
+    console.log("  npx kapplus install-browser");
+    console.log("  npx kapplus dev");
   } else if (options.command === "check") {
     const analysis = await analyzeProject(options.project);
     console.log(
