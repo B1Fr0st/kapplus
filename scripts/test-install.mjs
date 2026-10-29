@@ -34,7 +34,10 @@ try {
   const consumer = path.join(temporary, "consumer");
   await fs.mkdir(consumer);
   await fs.writeFile(path.join(consumer, "package.json"), JSON.stringify({ private: true, type: "commonjs" }));
-  await run(["install", "--omit=dev", "--no-audit", "--no-fund", path.join(temporary, details.filename)], consumer);
+  const installTarget = process.env.KAPPLUS_INSTALL_URL || path.join(temporary, details.filename);
+  await run(["install", "--omit=dev", "--no-audit", "--no-fund", installTarget], consumer);
+  const installed = JSON.parse(await fs.readFile(path.join(consumer, "node_modules", "kapplus", "package.json"), "utf8"));
+  assert.equal(installed.version, details.version);
   await run(["exec", "--offline", "--", "kapplus", "--help"], consumer);
   await run(["exec", "--offline", "--", "kapplus", "init", "game", "--name", "Installed SDK"], consumer);
   const game = path.join(consumer, "game");
@@ -47,6 +50,8 @@ try {
   await run(["exec", "--offline", "--", "kapplus", "build", "--project", "game/kapplus.json"], consumer);
   const program = await fs.readFile(path.join(game, "dist", "khan", "program.js"), "utf8");
   assert(program.includes("draw"));
+  assert(program.includes("openWebSocket"));
+  assert(!/RTCPeerConnection|createPeer|stun:/.test(program), "Removed transport code leaked into the package");
   const probe = `import { compileProject, initializeProject, startDevServer } from 'kapplus';
     if (typeof initializeProject !== 'function') throw new Error('Missing public exports');
     const build = await compileProject('./game/kapplus.json');

@@ -5,7 +5,6 @@ const sharedRuntime = String.raw`
 var KAPPlus = (function() {
     var makeTextureImage;
     var makeWebGLRenderer;
-    var makeWebRTCPeer;
     var makeNetwork;
     var promptForCode;
     var buildCodePanel;
@@ -1012,240 +1011,6 @@ var KAPPlus = (function() {
             pixelRatio: pixelRatio
         });
     };
-    var buildWebRTCPeer = function(nativeWindow, options, peerRegistry) {
-        options = options || {};
-        var PeerConnectionType = nativeWindow.RTCPeerConnection ||
-            nativeWindow.webkitRTCPeerConnection;
-        if (!PeerConnectionType) {
-            throw new Error("KAP+ WebRTC is unavailable");
-        }
-        var configuration = {
-            iceServers: options.iceServers || [
-                { urls: "stun:stun.l.google.com:19302" },
-                { urls: "stun:stun.cloudflare.com:3478" }
-            ]
-        };
-        var connection = new PeerConnectionType(configuration);
-        var channel = null;
-        var closed = false;
-        var api = {
-            state: "new",
-            role: "",
-            error: "",
-            localCodeLength: 0,
-            remoteCodeLength: 0,
-            onState: null,
-            onMessage: null,
-            onOpen: null
-        };
-        var emitState = function(state) {
-            api.state = state;
-            if (api.onState) {
-                api.onState(state);
-            }
-            if (options.onState) {
-                options.onState(state);
-            }
-        };
-        var fail = function(error, callback) {
-            api.error = error && error.message ? error.message : String(error);
-            emitState("error");
-            if (callback) {
-                callback(api.error, null);
-            }
-        };
-        var encodeDescription = function(description) {
-            var value = nativeWindow.JSON.stringify({
-                v: 1,
-                type: description.type,
-                sdp: description.sdp
-            });
-            return nativeWindow.btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-        };
-        var decodeDescription = function(code) {
-            var normalized = String(code || "").replace(/\s+/g, "")
-                .replace(/-/g, "+").replace(/_/g, "/");
-            while (normalized.length % 4) {
-                normalized += "=";
-            }
-            var value = nativeWindow.JSON.parse(nativeWindow.atob(normalized));
-            if (value.v !== 1 || (value.type !== "offer" && value.type !== "answer") ||
-                typeof value.sdp !== "string") {
-                throw new Error("Invalid KAP+ connection code");
-            }
-            return ({ type: value.type, sdp: value.sdp });
-        };
-        var channelOptions = { ordered: options.ordered !== false };
-        if (options.maxRetransmits !== undefined) {
-            channelOptions.maxRetransmits = options.maxRetransmits;
-        }
-        if (options.maxPacketLifeTime !== undefined) {
-            channelOptions.maxPacketLifeTime = options.maxPacketLifeTime;
-        }
-        var attachChannel = function(nextChannel) {
-            channel = nextChannel;
-            channel.onopen = function() {
-                emitState("connected");
-                if (api.onOpen) {
-                    api.onOpen();
-                }
-                if (options.onOpen) {
-                    options.onOpen();
-                }
-            };
-            channel.onmessage = function(event) {
-                if (api.onMessage) {
-                    api.onMessage(event.data);
-                }
-                if (options.onMessage) {
-                    options.onMessage(event.data);
-                }
-            };
-            channel.onerror = function() {
-                api.error = "WebRTC data channel error";
-                emitState("error");
-            };
-            channel.onclose = function() {
-                if (!closed) {
-                    emitState("disconnected");
-                }
-            };
-        };
-        connection.ondatachannel = function(event) {
-            attachChannel(event.channel);
-        };
-        connection.onconnectionstatechange = function() {
-            var state = connection.connectionState;
-            if (state === "failed") {
-                api.error = "WebRTC connection failed";
-                emitState("error");
-            } else if (state === "disconnected") {
-                emitState("disconnected");
-            } else if (state === "closed") {
-                emitState("closed");
-            } else if (state === "connecting") {
-                emitState("connecting");
-            }
-        };
-        var waitForIce = function(callback) {
-            if (connection.iceGatheringState === "complete") {
-                callback();
-                return;
-            }
-            var finished = false;
-            var finish = function() {
-                if (finished) {
-                    return;
-                }
-                finished = true;
-                connection.removeEventListener("icegatheringstatechange", check);
-                callback();
-            };
-            var check = function() {
-                if (connection.iceGatheringState === "complete") {
-                    finish();
-                }
-            };
-            connection.addEventListener("icegatheringstatechange", check);
-            nativeWindow.setTimeout(finish, options.iceTimeout || 8000);
-        };
-        api.createOffer = function(callback) {
-            api.role = "host";
-            emitState("creating offer");
-            attachChannel(connection.createDataChannel(options.channel || "kapplus", channelOptions));
-            connection.createOffer()["then"](function(description) {
-                return connection.setLocalDescription(description);
-            })["then"](function() {
-                emitState("gathering connection details");
-                waitForIce(function() {
-                    var code = encodeDescription(connection.localDescription);
-                    api.localCodeLength = code.length;
-                    emitState("offer ready");
-                    callback(null, code);
-                });
-            })["catch"](function(error) {
-                fail(error, callback);
-            });
-        };
-        api.acceptOffer = function(code, callback) {
-            var description;
-            try {
-                description = decodeDescription(code);
-                if (description.type !== "offer") {
-                    throw new Error("Expected a KAP+ offer code");
-                }
-            } catch (error) {
-                fail(error, callback);
-                return;
-            }
-            api.role = "guest";
-            api.remoteCodeLength = String(code).replace(/\s+/g, "").length;
-            emitState("accepting offer");
-            connection.setRemoteDescription(description)["then"](function() {
-                return connection.createAnswer();
-            })["then"](function(answer) {
-                return connection.setLocalDescription(answer);
-            })["then"](function() {
-                emitState("gathering connection details");
-                waitForIce(function() {
-                    var answerCode = encodeDescription(connection.localDescription);
-                    api.localCodeLength = answerCode.length;
-                    emitState("answer ready");
-                    callback(null, answerCode);
-                });
-            })["catch"](function(error) {
-                fail(error, callback);
-            });
-        };
-        api.acceptAnswer = function(code, callback) {
-            var description;
-            try {
-                description = decodeDescription(code);
-                if (description.type !== "answer") {
-                    throw new Error("Expected a KAP+ answer code");
-                }
-            } catch (error) {
-                fail(error, callback);
-                return;
-            }
-            api.remoteCodeLength = String(code).replace(/\s+/g, "").length;
-            emitState("accepting answer");
-            connection.setRemoteDescription(description)["then"](function() {
-                emitState("connecting");
-                if (callback) {
-                    callback(null);
-                }
-            })["catch"](function(error) {
-                fail(error, callback);
-            });
-        };
-        api.send = function(value) {
-            if (!channel || channel.readyState !== "open") {
-                return false;
-            }
-            channel.send(typeof value === "string" ? value : nativeWindow.JSON.stringify(value));
-            return true;
-        };
-        api.close = function() {
-            if (closed) {
-                return;
-            }
-            closed = true;
-            if (channel) {
-                channel.close();
-            }
-            connection.close();
-            if (peerRegistry) {
-                peerRegistry.remove(api);
-            }
-            emitState("closed");
-        };
-        api.connection = connection;
-        if (peerRegistry) {
-            peerRegistry.add(api);
-        }
-        return api;
-    };
     buildCodePanel = function(nativeWindow, nativeDocument, label, value, complete) {
         var existing = nativeDocument.getElementById("kapplus-code-panel");
         if (existing && existing.parentNode) {
@@ -1360,7 +1125,6 @@ ${networkRuntime}
             imageFromPixels: imageFromPixels,
             whenReady: whenReady,
             createWebGLRenderer: makeWebGLRenderer,
-            createPeer: makeWebRTCPeer,
             createNetwork: makeNetwork,
             promptCode: promptForCode
         });
@@ -1427,17 +1191,6 @@ const localAudioRuntime = String.raw`
     makeWebGLRenderer = function(options) {
         return buildWebGLRenderer(window, document, options);
     };
-    var localPeerEntries = [];
-    var localPeerRegistry = {
-        add: function(peer) { localPeerEntries.push(peer); },
-        remove: function(peer) {
-            var index = localPeerEntries.indexOf(peer);
-            if (index >= 0) { localPeerEntries.splice(index, 1); }
-        }
-    };
-    makeWebRTCPeer = function(options) {
-        return buildWebRTCPeer(window, options, localPeerRegistry);
-    };
     promptForCode = function(label, value, complete) {
         return buildCodePanel(window, document, label, value, complete);
     };
@@ -1500,28 +1253,6 @@ const khanBridgeRuntime = String.raw`
         }
     };
     audioWindow[audioRegistryKey] = audioRegistry;
-    var peerRegistryKey = joinWords("__kapplus", "PeerRegistry");
-    var previousPeerRegistry = audioWindow[peerRegistryKey];
-    if (previousPeerRegistry && previousPeerRegistry.closeAll) {
-        previousPeerRegistry.closeAll();
-    }
-    var activePeerEntries = [];
-    var peerRegistry = {
-        add: function(peer) { activePeerEntries.push(peer); },
-        remove: function(peer) {
-            for (var peerIndex = activePeerEntries.length - 1; peerIndex >= 0; peerIndex--) {
-                if (activePeerEntries[peerIndex] === peer) {
-                    activePeerEntries.splice(peerIndex, 1);
-                }
-            }
-        },
-        closeAll: function() {
-            while (activePeerEntries.length > 0) {
-                activePeerEntries[activePeerEntries.length - 1].close();
-            }
-        }
-    };
-    audioWindow[peerRegistryKey] = peerRegistry;
     var ContextType = audioWindow[joinWords("Audio", "Context")] ||
         audioWindow[joinWords("webkit", "AudioContext")];
     var ReflectType = audioWindow[joinWords("Re", "flect")];
@@ -1580,9 +1311,6 @@ const khanBridgeRuntime = String.raw`
     };
     makeWebGLRenderer = function(options) {
         return buildWebGLRenderer(audioWindow, audioDocument, options);
-    };
-    makeWebRTCPeer = function(options) {
-        return buildWebRTCPeer(audioWindow, options, peerRegistry);
     };
     promptForCode = function(label, value, complete) {
         return buildCodePanel(audioWindow, audioDocument, label, value, complete);

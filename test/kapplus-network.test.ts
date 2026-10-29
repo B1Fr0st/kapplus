@@ -4,15 +4,34 @@ import { runtimeFor } from "../src/runtime.js";
 
 type Client = {
   fetch(url: string, options?: Record<string, unknown>): Promise<Response>;
+  openWebSocket(url: string, options?: Record<string, unknown>): Promise<FakeSocket>;
   close(): void;
 };
+class FakeSocket extends EventTarget {
+  readyState = 0;
+  binaryType = "blob";
+  sent: unknown[] = [];
+  closes: number[] = [];
+  constructor(readonly url: string, readonly protocols?: string[]) { super(); }
+  open() { this.readyState = 1; this.dispatchEvent(new Event("open")); }
+  fail() { this.dispatchEvent(new Event("error")); }
+  send(value: unknown) {
+    if (this.readyState !== 1) throw new Error("Socket is not open");
+    this.sent.push(value);
+  }
+  message(data: unknown) { this.dispatchEvent(new MessageEvent("message", { data })); }
+  close(code = 1000, reason = "") {
+    this.closes.push(code); this.readyState = 3;
+    this.dispatchEvent(Object.assign(new Event("close"), { code, reason }));
+  }
+}
 type Frame = {
   style: Record<string, string>;
   parentNode?: unknown;
   onload: null | (() => void);
   onerror: null | (() => void);
   setAttribute(name: string, value: string): void;
-  contentWindow: { location: { origin: string }; fetch: typeof fetch };
+  contentWindow: { location: { origin: string }; fetch: typeof fetch; WebSocket?: unknown };
 };
 const clients: Client[] = [];
 afterEach(() => { clients.splice(0).forEach((client) => client.close()); });
@@ -20,10 +39,14 @@ afterEach(() => { clients.splice(0).forEach((client) => client.close()); });
 function runtime(khan = false) {
   const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => new Response('{"ok":true}'));
   const frames: Frame[] = [];
+  const sockets: FakeSocket[] = [];
+  class Socket extends FakeSocket {
+    constructor(url: string, protocols?: string[]) { super(url, protocols); sockets.push(this); }
+  }
   const document = {
     createElement: () => ({
       style: {}, onload: null, onerror: null, setAttribute() {},
-      contentWindow: { location: { origin: "https://www.kasandbox.org" }, fetch: fetchMock },
+      contentWindow: { location: { origin: "https://www.kasandbox.org" }, fetch: fetchMock, WebSocket: Socket },
     }),
     body: {
       appendChild(frame: Frame) { frame.parentNode = this; frames.push(frame); },
@@ -31,7 +54,7 @@ function runtime(khan = false) {
     },
   };
   const nativeWindow = {
-    Reflect, Promise, URL, Error, AbortController, ArrayBuffer, Object, Headers,
+    Reflect, Promise, URL, Error, AbortController, ArrayBuffer, Object, Headers, WebSocket: Socket,
     ReadableStream, Response, setTimeout, clearTimeout, atob,
     location: { origin: "https://www.kasandbox.org" },
     fetch: khan ? vi.fn(() => { throw new Error("Main Khan window is CSP-restricted"); }) : fetchMock,
@@ -44,7 +67,7 @@ function runtime(khan = false) {
   const restart = () => vm.runInContext(runtimeFor(khan ? "khan" : "local", false), sandbox);
   restart();
   return {
-    frames, fetchMock, nativeWindow, restart,
+    frames, sockets, fetchMock, nativeWindow, restart,
     create(options?: Record<string, unknown>): Client {
       const client = sandbox.KAPPlus.createNetwork(options) as Client;
       clients.push(client);
@@ -171,5 +194,111 @@ describe("KAP+ networking", () => {
     await bodyFailure;
     expect(fixture.frames).toHaveLength(0);
     await expect(client.fetch("https://api.example/data")).rejects.toMatchObject({ code: "NETWORK_CLOSED" });
+  });
+});
+
+
+describe("KAP+ WebSockets", () => {
+  it("shares lazy frame initialization with HTTP and returns an open native socket", async () => {
+    const fixture = runtime(true);
+    const client = fixture.create({ proxyUrl: "https://proxy.example/fetch", proxyToken: "private" });
+    const opening = client.openWebSocket("wss://echo.example/socket", { protocols: ["chat.v1"], binaryType: "arraybuffer" });
+    const request = client.fetch("https://api.example/data");
+    expect(fixture.frames).toHaveLength(1);
+    expect(fixture.sockets).toHaveLength(0);
+    fixture.frames[0]!.onload!();
+    await Promise.resolve();
+    const native = fixture.sockets[0]!;
+    expect(native.url).toBe("wss://echo.example/socket");
+    expect(native.protocols).toEqual(["chat.v1"]);
+    expect(native.binaryType).toBe("arraybuffer");
+    let resolved = false; void opening.then(() => { resolved = true; });
+    await Promise.resolve(); expect(resolved).toBe(false);
+    native.open();
+    expect(await opening).toBe(native);
+    const messages: unknown[] = [];
+    native.addEventListener("message", event => messages.push((event as MessageEvent).data));
+    const bytes = new Uint8Array([0, 128, 255]);
+    native.send("hello"); native.send(bytes); native.message(bytes.buffer);
+    expect(native.sent).toEqual(["hello", bytes]);
+    expect(messages).toEqual([bytes.buffer]);
+    await (await request).text();
+    client.close();
+    expect(native.readyState).toBe(3);
+    expect(fixture.frames).toHaveLength(0);
+  });
+
+  it.each([
+    ["ws://echo.example", {}], ["https://echo.example", {}], ["/socket", {}],
+    ["wss://u:p@echo.example", {}], ["wss://echo.example/#x", {}],
+    ["wss://echo.example", { protocols: ["chat", "chat"] }],
+    ["wss://echo.example", { protocols: ["bad protocol"] }],
+    ["wss://echo.example", { protocols: 3 }],
+    ["wss://echo.example", { binaryType: "json" }],
+    ["wss://echo.example", { timeoutMs: 0 }],
+    ["wss://echo.example", { signal: {} }],
+    ["wss://echo.example", { headers: { Authorization: "Bearer token" } }],
+  ])("rejects invalid socket input without I/O: %s", async (url, options) => {
+    const fixture = runtime(true);
+    await expect(fixture.create().openWebSocket(url, options)).rejects.toMatchObject({ code: "NETWORK_INVALID_REQUEST" });
+    expect(fixture.frames).toHaveLength(0);
+    expect(fixture.sockets).toHaveLength(0);
+  });
+
+  it("supports a single subprotocol and releases closed sockets", async () => {
+    const fixture = runtime(); const client = fixture.create();
+    const opening = client.openWebSocket("wss://echo.example", { protocols: "chat" });
+    await Promise.resolve(); const socket = fixture.sockets[0]!;
+    expect(socket.protocols).toEqual(["chat"]); socket.open(); await opening;
+    socket.close(3000, "finished"); client.close();
+    expect(socket.closes).toEqual([3000]);
+  });
+
+  it("times out initialization and handshakes without a late connection", async () => {
+    const fixture = runtime(true); const client = fixture.create();
+    await expect(client.openWebSocket("wss://echo.example", { timeoutMs: 10 })).rejects.toMatchObject({ code: "NETWORK_TIMEOUT" });
+    fixture.frames[0]!.onload!(); await Promise.resolve();
+    expect(fixture.sockets).toHaveLength(0);
+    const failure = expect(client.openWebSocket("wss://echo.example", { timeoutMs: 10 })).rejects.toMatchObject({ code: "NETWORK_TIMEOUT" });
+    await failure; expect(fixture.sockets[0]!.readyState).toBe(3);
+  });
+
+  it("rejects failed and prematurely closed handshakes", async () => {
+    const fixture = runtime(); const client = fixture.create();
+    const failed = expect(client.openWebSocket("wss://echo.example")).rejects.toMatchObject({ code: "WEBSOCKET_CONNECTION_FAILED" });
+    await Promise.resolve(); fixture.sockets[0]!.fail(); await failed;
+    const closed = expect(client.openWebSocket("wss://echo.example")).rejects.toMatchObject({ code: "WEBSOCKET_CONNECTION_FAILED", closeCode: 1008 });
+    await Promise.resolve(); fixture.sockets[1]!.close(1008, "denied"); await closed;
+  });
+
+  it("aborts pending and open sockets and closes them on a Khan restart", async () => {
+    const fixture = runtime(true); const client = fixture.create();
+    const aborted = new AbortController(); aborted.abort();
+    await expect(client.openWebSocket("wss://echo.example", { signal: aborted.signal })).rejects.toMatchObject({ name: "AbortError" });
+    expect(fixture.frames).toHaveLength(0);
+    const pendingController = new AbortController();
+    const pending = expect(client.openWebSocket("wss://echo.example", { signal: pendingController.signal })).rejects.toMatchObject({ name: "AbortError" });
+    fixture.frames[0]!.onload!(); await Promise.resolve(); pendingController.abort(); await pending;
+    expect(fixture.sockets[0]!.readyState).toBe(3);
+    const controller = new AbortController();
+    const opening = client.openWebSocket("wss://echo.example", { signal: controller.signal });
+    await Promise.resolve(); fixture.sockets[1]!.open(); await opening;
+    controller.abort(); expect(fixture.sockets[1]!.readyState).toBe(3);
+    const live = client.openWebSocket("wss://echo.example");
+    await Promise.resolve(); fixture.sockets[2]!.open(); await live;
+    const unfinished = expect(client.openWebSocket("wss://echo.example")).rejects.toMatchObject({ name: "AbortError" });
+    await Promise.resolve(); fixture.restart(); await unfinished;
+    expect(fixture.sockets.every(socket => socket.readyState === 3)).toBe(true);
+    expect(fixture.frames).toHaveLength(0);
+    await expect(client.openWebSocket("wss://echo.example")).rejects.toMatchObject({ code: "NETWORK_CLOSED" });
+  });
+
+  it("reports unavailable native constructors and failed frames", async () => {
+    const fixture = runtime(true); const client = fixture.create();
+    const opening = expect(client.openWebSocket("wss://echo.example")).rejects.toMatchObject({ code: "NETWORK_UNAVAILABLE" });
+    fixture.frames[0]!.contentWindow.WebSocket = undefined; fixture.frames[0]!.onload!(); await opening;
+    const broken = runtime(true);
+    const failure = expect(broken.create().openWebSocket("wss://echo.example")).rejects.toMatchObject({ code: "NETWORK_UNAVAILABLE" });
+    broken.frames[0]!.onerror!(); await failure;
   });
 });

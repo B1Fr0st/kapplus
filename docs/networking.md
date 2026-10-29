@@ -32,13 +32,13 @@ network.fetch("https://httpbin.org/anything", {
 ```
 
 Call `network.close()` when finished with the client to abort outstanding work
-and release its native frame.
+and close its WebSockets, then release its native frame.
 
 ```ts
 interface NetworkOptions {
     proxyUrl?: string;   // Absolute HTTPS /fetch endpoint; omit for direct fetch.
     proxyToken?: string; // Optional X-KAPPlus-Token, used only with a proxy.
-    timeoutMs?: number;  // Default 15000; positive time limit until headers arrive.
+    timeoutMs?: number;  // Default 15000; time limit until HTTP headers or socket OPEN.
 }
 
 interface NetworkRequest {
@@ -50,13 +50,21 @@ interface NetworkRequest {
     timeoutMs?: number;
 }
 
+interface WebSocketOptions {
+    protocols?: string | string[];
+    binaryType?: "blob" | "arraybuffer";
+    signal?: AbortSignal;
+    timeoutMs?: number;
+}
+
 interface NetworkClient {
     fetch(url: string, options?: NetworkRequest): Promise<Response>;
+    openWebSocket(url: string, options?: WebSocketOptions): Promise<WebSocket>;
     close(): void;
 }
 ```
 
-- Construction is synchronous and does no I/O. The first `fetch()` lazily
+- Construction is synchronous and does no I/O. The first HTTP or WebSocket operation lazily
   initializes the context; simultaneous calls share initialization. Requests
   wait for initialization, with the same timeout covering that wait.
 - Only absolute HTTPS target URLs are accepted initially. GET and HEAD reject
@@ -73,7 +81,7 @@ interface NetworkClient {
 - Timeouts stop once response headers arrive. An explicit abort signal or
   `close()` can also stop an unfinished response body. Restarting a Khan program
   closes its previous clients, aborts their requests, and releases their frames,
-  following the existing audio/WebRTC registry pattern.
+  following the existing audio registry pattern.
 - Chunk loaders ignore obsolete run generations, so a late CDN response from an
   earlier evaluation cannot initialize that program again and close the current
   client's network context.
@@ -92,6 +100,47 @@ interface NetworkClient {
   cacheable GET response without invoking the Worker. The returned `url` and
   `redirected` describe the proxy exchange; `X-KAPPlus-URL` identifies the
   upstream URL. The SDK preserves the browser response URL and redirect metadata.
+
+## WebSockets
+
+```js
+var network = KAPPlus.createNetwork();
+network.openWebSocket("wss://echo.websocket.org", {
+    protocols: [],
+    binaryType: "arraybuffer",
+    timeoutMs: 15000
+}).then(function(socket) {
+    socket.onmessage = function(event) { /* event.data is text or binary */ };
+    socket.onerror = function(event) { /* connection error after OPEN */ };
+    socket.onclose = function(event) { /* event.code and event.reason */ };
+    socket.send("hello");
+}).catch(function(error) {
+    // Initialization, timeout, cancellation, or handshake failure.
+});
+```
+
+The promise resolves only in the OPEN state and returns the native WebSocket.
+Use its standard send(), close(), readyState, bufferedAmount, protocol, and event
+APIs. Text and binary messages retain their native representation; there is no
+implicit JSON conversion or automatic reconnect. The binaryType option defaults
+to the browser's blob behavior; arraybuffer selects ArrayBuffer messages.
+
+Only absolute WSS URLs without credentials or fragments are accepted.
+Subprotocols must be valid, unique protocol tokens. Invalid input rejects with
+NETWORK_INVALID_REQUEST before opening a frame. Unsupported custom headers
+are rejected; browser Origin and cookie rules govern the handshake.
+
+WebSockets connect directly to their WSS URL. The HTTP proxyUrl and proxyToken
+options apply only to fetch(), and the included /fetch Worker is an HTTP proxy.
+To use a WebSocket relay, supply its WSS endpoint as the socket URL.
+
+Timeouts cover initialization and the handshake and stop at OPEN. Abort signals
+remain active for the socket lifetime. Handshake errors and closes before OPEN
+reject with WEBSOCKET_CONNECTION_FAILED; early close errors include closeCode
+and closeReason. Other errors use NETWORK_UNAVAILABLE, NETWORK_TIMEOUT,
+NETWORK_INVALID_REQUEST, and NETWORK_CLOSED. Cancellation and client close
+reject pending connections with AbortError; after OPEN they close the socket.
+Client close and Khan restart close all tracked sockets and release the frame.
 
 ## Runtime context
 

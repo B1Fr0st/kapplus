@@ -1,5 +1,5 @@
 export const api = [
-  { id: "createNetwork", category: "Sketch runtime", signature: "KAPPlus.createNetwork(options?) → NetworkClient", summary: "Make direct or proxied HTTP requests with timeouts and cancellation.", body: `Returns a client with fetch(url, options) and close(). Construction is synchronous; the first request initializes the context. Omit proxyUrl for direct browser requests, which retain CORS restrictions. A proxy must allow the target origin.
+  { id: "createNetwork", category: "Sketch runtime", signature: "KAPPlus.createNetwork(options?) → NetworkClient", summary: "Make HTTP requests and open native WebSockets with timeouts and cancellation.", body: `Returns a client with fetch(url, options), openWebSocket(url, options), and close(). Construction is synchronous; the first request initializes the context. Omit proxyUrl for direct browser requests, which retain CORS restrictions. A proxy must allow the target origin.
 
 \`\`\`js
 const network = KAPPlus.createNetwork({
@@ -18,7 +18,16 @@ Requests accept method, headers, body, signal, cache, and timeoutMs. Supported m
 
 The result is a native Response. Upstream HTTP errors resolve normally; proxy failures reject with code PROXY_ERROR, status, and proxyCode. Other error codes include NETWORK_TIMEOUT, NETWORK_UNAVAILABLE, NETWORK_INVALID_REQUEST, and NETWORK_CLOSED. Cancellation rejects with AbortError.
 
+openWebSocket(url, options) resolves to a native WebSocket in the OPEN state. It accepts absolute WSS URLs without credentials or fragments. Options are protocols (string or string array), binaryType (blob or arraybuffer), signal, and timeoutMs. The timeout covers frame initialization and handshake, and stops at OPEN. Signals remain active until the socket closes. Use send(), close(), onmessage, onerror, onclose, readyState, and bufferedAmount normally; messages are not JSON-encoded automatically.
+
+WebSockets connect directly even when HTTP proxyUrl is configured. Custom handshake headers are rejected; browser Origin and cookie rules apply. A handshake error or early close rejects with WEBSOCKET_CONNECTION_FAILED; an early close includes closeCode and closeReason. Other network error codes and AbortError behave like fetch. close() and program restart close both pending and established sockets. There is no automatic reconnect.
+
 Timeouts cover initialization through response headers. Abort signals and close() also stop unfinished bodies. Restarts close previous clients. Redirects are manual: the proxy exposes X-KAPPlus-Location. Browser login cookies are not forwarded.` },
+  { id: "openWebSocket", category: "Sketch runtime", signature: "network.openWebSocket(url, options?) → Promise<WebSocket>", summary: "Open a direct WSS connection through a createNetwork() client.", body: `Create a client with KAPPlus.createNetwork(), then call openWebSocket(). The promise resolves when the connection is OPEN. Options are protocols, binaryType, timeoutMs, and signal.
+
+Use the returned native socket's send(), close(), onmessage, onerror, onclose, readyState, protocol, and bufferedAmount. Messages remain native text or binary data. The timeout covers initialization and handshake; an AbortSignal remains active until close. Client close and program restart close the socket automatically.
+
+Connections use absolute WSS URLs directly. HTTP proxy settings apply to fetch only. Custom handshake headers are rejected. Browser Origin and cookie rules apply. A failed handshake rejects with WEBSOCKET_CONNECTION_FAILED; initialization, timeout, cancellation, and closed-client errors follow the createNetwork contract. No reconnect is attempted automatically.` },
   { id: "createWebGLRenderer", category: "Sketch runtime", signature: "KAPPlus.createWebGLRenderer(options) → Renderer", summary: "Render imported meshes with the native WebGL 2 context.", body: `Pass a required mesh and optional textures array. Other options include width, height, pixelRatio, background, perspective, fov, camera, fit, unlit, anisotropy, and thumbnailHotkey.
 
 \`\`\`js
@@ -35,21 +44,6 @@ export function draw() {
 render(yaw, pitch) draws one view. renderInstances(instances) draws an explicit instance list. thumbnail(options) renders once and returns a PNG data URL by default; it accepts yaw, pitch, instances, type, and quality.
 
 Material-indexed roughness, metallic, roughnessMaps, metallicMaps, and normalMaps are supported. The renderer exposes canvas, gl, stats, triangleCount, sourceTextureCount, and pixelRatio. showThumbnail() and hideThumbnail() mirror the WebGL frame into the Processing canvas. dispose() releases thumbnail event listeners. Creating a replacement renderer removes the previous overlay.` },
-  { id: "createPeer", category: "Sketch runtime", signature: "KAPPlus.createPeer(options?) → Peer", summary: "Exchange messages over a WebRTC data channel.", body: `Options include channel, iceServers, ordered, maxRetransmits, maxPacketLifeTime, iceTimeout, onState, onOpen, and onMessage.
-
-\`\`\`js
-const peer = KAPPlus.createPeer({
-    channel: "my-game",
-    onMessage: function(message) { /* update game state */ }
-});
-peer.createOffer(function(error, code) {
-    if (!error) { KAPPlus.promptCode("Copy offer", code, function() {}); }
-});
-\`\`\`
-
-createOffer(callback) produces a complete offer code. A guest uses acceptOffer(code, callback) to produce an answer; the host calls acceptAnswer(code, callback). send(value) sends a string or JSON-serialized object and reports whether the channel was open. close() closes the connection.
-
-State is exposed as state, role, error, localCodeLength, and remoteCodeLength. The native RTCPeerConnection is available as connection. Default discovery uses public STUN servers; a TURN relay is not configured automatically. Khan restarts close previous peers.` },
   { id: "whenReady", category: "Sketch runtime", signature: "KAPPlus.whenReady(callback) → void", summary: "Wait for imported source textures to finish decoding.", body: `The callback runs immediately when no source textures are pending, or after they finish. This does not wait for HTTP requests or audio playback.
 
 \`\`\`js
@@ -68,7 +62,7 @@ export function draw() { image(redPixel, 20, 20, 100, 100); }
   { id: "promptCode", category: "Sketch runtime", signature: "KAPPlus.promptCode(label, value, callback) → CodePanel", summary: "Show a text entry and copy panel inside the output frame.", body: `Pass a label, an initial string, and a completion callback. Completion returns the entered string; cancellation returns null. The returned panel exposes textarea and close(). A new program evaluation removes the previous panel.
 
 \`\`\`js
-KAPPlus.promptCode("Paste offer", "", function(code) {
+KAPPlus.promptCode("Project code", "", function(code) {
     if (code !== null) { /* use the entered code */ }
 });
 \`\`\`` },
@@ -175,7 +169,7 @@ Generated khan/program.js contains the whole runtime and application. Large gene
 
 KAPPlus.createNetwork() obtains the browser networking context lazily. Direct requests retain ordinary CORS restrictions. A small server-side proxy can perform upstream requests and add CORS headers for the Khan origin.
 
-The standalone package includes a deployable Cloudflare Worker in workers/network-proxy. Set its allowed target origins, then deploy with Wrangler. It streams request and response bodies, uses no database or storage binding, and disables request logs by default. See [the proxy starter](https://github.com/B1Fr0st/kapplus/tree/v0.1.2/workers/network-proxy) for configuration and protocol details.
+The standalone package includes a deployable Cloudflare Worker in workers/network-proxy. Set its allowed target origins, then deploy with Wrangler. It streams request and response bodies, uses no database or storage binding, and disables request logs by default. See [the proxy starter](https://github.com/B1Fr0st/kapplus/tree/v0.1.3/workers/network-proxy) for configuration and protocol details.
 
 Create one client for a feature, reuse it, and consume or cancel responses. HTTP errors return native Response objects; transport and proxy failures reject. Explicit JSON serialization keeps the wire format predictable. Use an AbortSignal for cancellation or close the client when finished. A Khan restart closes old clients automatically.
 

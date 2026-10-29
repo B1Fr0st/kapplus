@@ -58,6 +58,20 @@ export const networkRuntime = String.raw`
         var frameTimer = null;
         var rejectFrame = null;
         var requests = [];
+        var sockets = [];
+        var finishSocket = function(entry) {
+            if (entry.done) { return; }
+            entry.done = true;
+            if (entry.timer !== null) { nativeWindow.clearTimeout(entry.timer); entry.timer = null; }
+            if (entry.signal) { entry.signal.removeEventListener("abort", entry.onAbort); }
+            if (entry.socket) {
+                entry.socket.removeEventListener("open", entry.onOpen);
+                entry.socket.removeEventListener("error", entry.onError);
+                entry.socket.removeEventListener("close", entry.onClose);
+            }
+            var index = sockets.indexOf(entry);
+            if (index >= 0) { sockets.splice(index, 1); }
+        };
         var removeFrame = function() {
             if (frameTimer !== null) { nativeWindow.clearTimeout(frameTimer); frameTimer = null; }
             if (frame) {
@@ -145,6 +159,95 @@ export const networkRuntime = String.raw`
             return result;
         };
         var api = {
+            openWebSocket: function(value, init) {
+                return construct(PromiseType, [function(resolve, reject) {
+                    if (closed) { reject(error("NETWORK_CLOSED", "Network client is closed")); return; }
+                    init = init || {};
+                    var entry = null;
+                    try {
+                        if (init.headers !== undefined) {
+                            throw error("NETWORK_INVALID_REQUEST", "Browser WebSockets do not support custom request headers");
+                        }
+                        var target;
+                        try { target = construct(URLType, [value]); }
+                        catch (urlError) { throw error("NETWORK_INVALID_REQUEST", "Expected an absolute WSS URL"); }
+                        if (typeof value !== "string" || target.protocol !== "wss:" || target.username || target.password || target.hash) {
+                            throw error("NETWORK_INVALID_REQUEST", "Expected a WSS URL without credentials or a fragment");
+                        }
+                        var protocols = init.protocols;
+                        if (protocols !== undefined) {
+                            if (typeof protocols === "string") { protocols = [protocols]; }
+                            else if (nativeWindow[key("Ob", "ject")].prototype.toString.call(protocols) === "[object Array]") { protocols = protocols.slice(0); }
+                            else { throw error("NETWORK_INVALID_REQUEST", "protocols must be a string or an array of strings"); }
+                            for (var index = 0; index < protocols.length; index++) {
+                                if (typeof protocols[index] !== "string" || !/^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$/.test(protocols[index]) || protocols.indexOf(protocols[index]) !== index) {
+                                    throw error("NETWORK_INVALID_REQUEST", "Invalid or duplicate WebSocket subprotocol");
+                                }
+                            }
+                        }
+                        if (init.binaryType !== undefined && init.binaryType !== "blob" && init.binaryType !== "arraybuffer") {
+                            throw error("NETWORK_INVALID_REQUEST", "binaryType must be blob or arraybuffer");
+                        }
+                        var openTimeout = positiveTimeout(init.timeoutMs === undefined ? timeoutMs : init.timeoutMs);
+                        var signal = init.signal;
+                        if (signal && (typeof signal.addEventListener !== "function" || typeof signal.removeEventListener !== "function")) {
+                            throw error("NETWORK_INVALID_REQUEST", "signal must be an AbortSignal");
+                        }
+                        entry = { socket: null, timer: null, signal: signal, done: false, opened: false };
+                        entry.stop = function(reason) {
+                            if (entry.done) { return; }
+                            finishSocket(entry);
+                            if (entry.socket && entry.socket.readyState < 2) {
+                                try { entry.socket.close(1000, "KAPPlus connection closed"); } catch (closeError) {}
+                            }
+                            if (!entry.opened) { reject(reason); }
+                        };
+                        entry.onAbort = function() { entry.stop(error("NETWORK_ABORTED", "WebSocket aborted", "AbortError")); };
+                        entry.onOpen = function() {
+                            if (entry.done) { return; }
+                            entry.opened = true;
+                            nativeWindow.clearTimeout(entry.timer);
+                            entry.timer = null;
+                            resolve(entry.socket);
+                        };
+                        entry.onError = function() {
+                            if (!entry.opened) { entry.stop(error("WEBSOCKET_CONNECTION_FAILED", "WebSocket connection failed")); }
+                        };
+                        entry.onClose = function(event) {
+                            if (entry.opened) { finishSocket(entry); }
+                            else {
+                                var failure = error("WEBSOCKET_CONNECTION_FAILED", "WebSocket closed before opening");
+                                failure.closeCode = event.code;
+                                failure.closeReason = event.reason;
+                                entry.stop(failure);
+                            }
+                        };
+                        sockets.push(entry);
+                        if (signal) {
+                            if (signal.aborted) { entry.onAbort(); return; }
+                            signal.addEventListener("abort", entry.onAbort);
+                        }
+                        entry.timer = nativeWindow.setTimeout(function() {
+                            entry.stop(error("NETWORK_TIMEOUT", "WebSocket connection timed out"));
+                        }, openTimeout);
+                        context()["then"](function(networkWindow) {
+                            if (entry.done) { return; }
+                            var SocketType = networkWindow[key("Web", "Socket")];
+                            if (typeof SocketType !== "function") { throw error("NETWORK_UNAVAILABLE", "WebSockets are unavailable in the network context"); }
+                            var args = [target.href];
+                            if (protocols !== undefined) { args.push(protocols); }
+                            entry.socket = construct(SocketType, args);
+                            if (init.binaryType !== undefined) { entry.socket.binaryType = init.binaryType; }
+                            entry.socket.addEventListener("open", entry.onOpen);
+                            entry.socket.addEventListener("error", entry.onError);
+                            entry.socket.addEventListener("close", entry.onClose);
+                        })["catch"](entry.stop);
+                    } catch (socketError) {
+                        if (entry) { entry.stop(socketError); }
+                        else { reject(socketError); }
+                    }
+                }]);
+            },
             fetch: function(value, init) {
                 return construct(PromiseType, [function(resolve, reject) {
                     if (closed) { reject(error("NETWORK_CLOSED", "Network client is closed")); return; }
@@ -237,6 +340,7 @@ export const networkRuntime = String.raw`
                 closed = true;
                 var reason = error("NETWORK_ABORTED", "Network client closed", "AbortError");
                 while (requests.length) { requests[requests.length - 1].fail(reason); }
+                while (sockets.length) { sockets[sockets.length - 1].stop(reason); }
                 if (rejectFrame) { rejectFrame(reason); rejectFrame = null; }
                 removeFrame();
                 registry.remove(api);

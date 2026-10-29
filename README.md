@@ -17,7 +17,7 @@ empty project directory:
 mkdir my-game
 cd my-game
 npm init -y
-npm install --save-dev https://github.com/B1Fr0st/kapplus/releases/download/v0.1.2/kapplus-0.1.2.tgz
+npm install --save-dev https://github.com/B1Fr0st/kapplus/releases/download/v0.1.3/kapplus-0.1.3.tgz
 npx kapplus init .
 npx kapplus install-browser
 npx kapplus dev
@@ -80,8 +80,7 @@ requested busy port produces an error with a suggestion to use `--port 0`.
 KAP+ injects `KAPPlus` into each compiled sketch:
 
 - `createWebGLRenderer(options)`: native WebGL 2 rendering and thumbnails.
-- `createNetwork(options)`: direct or proxied HTTP requests with cancellation.
-- `createPeer(options)`: WebRTC data channels and offer/answer exchange.
+- `createNetwork(options)`: HTTP requests and native WebSockets with cancellation.
 - `whenReady(callback)`: wait for imported source textures to finish decoding.
 - `promptCode(label, value, callback)`: an in-frame code entry/copy panel.
 
@@ -89,6 +88,27 @@ Imported textures provide `image()` and sampling methods; imported audio
 provides `play()` and `stop()`. Refer to the documentation for options and
 lifecycles. Native capabilities remain subject to Khan's current browser
 policies. A networking proxy needs to allow your target API.
+
+## WebSockets
+
+```js
+var network = KAPPlus.createNetwork();
+network.openWebSocket("wss://echo.websocket.org", {
+    binaryType: "arraybuffer",
+    timeoutMs: 15000
+}).then(function(socket) {
+    socket.onmessage = function(event) { /* use event.data */ };
+    socket.send("hello");
+});
+```
+
+The promise resolves when connected and returns a native WebSocket. Send text,
+ArrayBuffer, typed arrays, or Blob data; `protocols` accepts a subprotocol string
+or array. An optional AbortSignal applies throughout the socket lifetime.
+Client close and program restart close pending and open sockets automatically.
+Connections use absolute `wss://` URLs directly; HTTP proxy settings apply to
+`fetch()` only. Browser Origin and cookie rules apply. The browser cannot set
+custom handshake headers. See the networking reference for error handling.
 
 ## Publish
 
@@ -137,6 +157,7 @@ npm run build
 npm test
 npm run test:install
 npm run test:khan
+npm run test:websocket:khan
 npm run docs:build
 ```
 
