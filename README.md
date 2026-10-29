@@ -17,7 +17,7 @@ empty project directory:
 mkdir my-game
 cd my-game
 npm init -y
-npm install --save-dev https://github.com/B1Fr0st/kapplus/releases/download/v0.1.1/kapplus-0.1.1.tgz
+npm install --save-dev https://github.com/B1Fr0st/kapplus/releases/download/v0.1.2/kapplus-0.1.2.tgz
 npx kapplus init .
 npx kapplus install-browser
 npx kapplus dev

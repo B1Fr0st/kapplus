@@ -175,7 +175,7 @@ Generated khan/program.js contains the whole runtime and application. Large gene
 
 KAPPlus.createNetwork() obtains the browser networking context lazily. Direct requests retain ordinary CORS restrictions. A small server-side proxy can perform upstream requests and add CORS headers for the Khan origin.
 
-The standalone package includes a deployable Cloudflare Worker in workers/network-proxy. Set its allowed target origins, then deploy with Wrangler. It streams request and response bodies, uses no database or storage binding, and disables request logs by default. See [the proxy starter](https://github.com/B1Fr0st/kapplus/tree/v0.1.1/workers/network-proxy) for configuration and protocol details.
+The standalone package includes a deployable Cloudflare Worker in workers/network-proxy. Set its allowed target origins, then deploy with Wrangler. It streams request and response bodies, uses no database or storage binding, and disables request logs by default. See [the proxy starter](https://github.com/B1Fr0st/kapplus/tree/v0.1.2/workers/network-proxy) for configuration and protocol details.
 
 Create one client for a feature, reuse it, and consume or cancel responses. HTTP errors return native Response objects; transport and proxy failures reject. Explicit JSON serialization keeps the wire format predictable. Use an AbortSignal for cancellation or close the client when finished. A Khan restart closes old clients automatically.
 
