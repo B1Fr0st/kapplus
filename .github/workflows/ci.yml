@@ -1,0 +1,67 @@
+name: KAP+ CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  standalone:
+    name: Install / Node ${{ matrix.node }} / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: 20 }
+          - { os: ubuntu-latest, node: 22 }
+          - { os: ubuntu-latest, node: 24 }
+          - { os: macos-latest, node: 22 }
+          - { os: windows-latest, node: 22 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+      - run: npm run docs:build
+      - run: npm test
+      - run: npm run test:install
+      - if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: node -e "require('node:fs').mkdirSync('artifacts',{recursive:true})"
+      - if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: npm pack --pack-destination artifacts
+      - if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        uses: actions/upload-artifact@v7
+        with:
+          name: kapplus-package
+          path: artifacts/*.tgz
+          if-no-files-found: error
+
+  khan-preview:
+    name: Actual Khan sandbox / preview parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:khan
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: khan-preview-diagnostics
+          path: artifacts/
+          if-no-files-found: ignore

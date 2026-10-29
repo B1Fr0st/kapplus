@@ -1,0 +1,13 @@
+{
+  "name": "kapplus-project-proxy",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-28",
+  "workers_dev": true,
+  "observability": {
+    "enabled": false
+  },
+  "vars": {
+    "ALLOWED_ORIGINS": "https://www.kasandbox.org,http://localhost:4173,http://127.0.0.1:4173",
+    "ALLOWED_TARGET_ORIGINS": "https://httpbin.org,https://cdn.jsdelivr.net"
+  }
+}
