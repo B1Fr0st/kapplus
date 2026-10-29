@@ -24,6 +24,10 @@ async function run(args, cwd = temporary) {
 try {
   const packed = await run(["pack", "--silent", "--json", "--pack-destination", temporary], library);
   const details = JSON.parse(packed.slice(packed.indexOf("[")))[0];
+  const included = new Set(details.files.map(file => file.path));
+  for (const required of ["dist/cli.js", "dist/index.js", "docs/networking.md", "workers/network-proxy/worker.mjs", "workers/network-proxy/wrangler.jsonc"]) {
+    assert(included.has(required), `Missing standalone package file: ${required}`);
+  }
   for (const file of details.files) {
     assert(!/(^|\/)(projects|examples|meshes|programs|\.kapplus|\.git)(\/|$)/.test(file.path), `Application content leaked into package: ${file.path}`);
   }

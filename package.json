@@ -26,6 +26,7 @@
   "files": [
     "dist",
     "README.md",
+    "docs/networking.md",
     "workers/network-proxy"
   ],
   "scripts": {

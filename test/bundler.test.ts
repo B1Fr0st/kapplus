@@ -45,7 +45,7 @@ describe("JavaScript project modules", () => {
     expect(calls).toEqual([3, 6]);
     expect(effects).toEqual(["start"]);
     const root = await fs.realpath(path.dirname(manifest));
-    expect(analysis.inputFiles.map(file => path.relative(root, file)).sort())
+    expect(analysis.inputFiles.map(file => path.relative(root, file).split(path.sep).join("/")).sort())
       .toEqual(["game/index.js", "game/movement.js", "game/start.js", "main.js", "settings.json"]);
   });
 
