@@ -600,21 +600,36 @@ describe("KAP+ compiler", () => {
     expect(updatedCurrent.source).toContain(`/chunks/${updated.manifest.buildId}/chunk-4.js`);
   });
 
-  it("reports chunk and asset progress without overwriting setup-only pixels after loading", () => {
-    const source = bootstrapSource("setup-only", ["https://example.test/chunk.js"]);
-    expect(source).toContain('loaderUrls[loaderIndex].split("/").pop()');
-    expect(source).toContain('"loading " + loaderFile');
-    expect(source).toContain('"failed " + loaderFile');
-    expect(source).toContain('"Decompiling asset " + assetStatus.current');
-    expect(source).toContain('joinLoaderWords("__kapplusAsset", "Status")');
-    expect(source).toContain('with(p){return(function(){');
-    expect(source).toContain("loaderScript.__kapplusContinue = loaderLoadNext;");
-    expect(source).toContain('text("KAP+", width / 2, height / 2 - 42)');
-    expect(source).toContain('var barX = (width - barWidth) / 2;');
-    expect(source).toContain("loaderScreen(loaderState, \"\", loaderCompleted, loaderUrls.length);");
-    expect(source).toContain("if (loaderHandlers) {");
-    expect(source).toContain("if (loaderHandlers.draw) {");
-    expect(source).toContain("loaderHandlers.draw.call(loaderInstance);");
-    expect(source).toMatch(/if \(loaderHandlers\)[\s\S]*?return;\n  }\n};/);
+  it("reports loading progress and preserves setup-only rendering when ready", () => {
+    const scripts: Array<{ onload(): void }> = [];
+    const backgrounds: number[][] = [];
+    const labels: string[] = [];
+    const background = (...values: number[]) => backgrounds.push(values);
+    const nativeWindow: Record<string, unknown> = {
+      Processing: { getInstanceById: () => ({ background }) }, Object, Reflect, Function,
+      __kapplusPublishChunks: { "setup-only": ["setup=function(){background(7);};"] },
+    };
+    const document = {
+      defaultView: nativeWindow, createElement: () => ({}),
+      head: { appendChild(script: typeof scripts[number]) { scripts.push(script); } },
+    };
+    const noop = () => {};
+    const sandbox = vm.createContext({
+      getSound: () => ({ audio: { ownerDocument: document } }), background,
+      fill: noop, textAlign: noop, textSize: noop, noStroke: noop, rect: noop,
+      text: (label: string) => labels.push(label), min: Math.min, width: 400, height: 400, CENTER: 0,
+    });
+    vm.runInContext(bootstrapSource("setup-only", ["https://example.test/chunk.js"]), sandbox);
+    sandbox.draw();
+    expect(labels).toContain("loading chunk.js (1/1)");
+    scripts[0]!.onload();
+    expect(backgrounds.at(-1)).toEqual([7]);
+    const painted = backgrounds.length;
+    sandbox.draw();
+    expect(backgrounds).toHaveLength(painted);
+    nativeWindow.__kapplusAssetStatus = { phase: "decoding", current: 1, total: 2, name: "sprite.png" };
+    sandbox.draw();
+    expect(labels).toContain("Decompiling asset 1 of 2");
+    expect(labels).toContain("sprite.png");
   });
 });

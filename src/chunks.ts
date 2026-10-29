@@ -79,10 +79,13 @@ var loaderState = "loading";
 var loaderSetState = function(value) {
   if (!loaderIsCurrent()) { return; }
   loaderState = value;
+  loaderGeneration.state = value;
   loaderWindow[joinLoaderWords("__kapplusLoader", "Status")] = value;
 };
 loaderSetState(loaderState);
 var loaderCompleted = 0;
+loaderGeneration.completed = 0;
+loaderGeneration.total = loaderUrls.length;
 var loaderStart = function() {
   if (!loaderIsCurrent()) { return; }
   var registry = loaderWindow[loaderRegistryKey];
@@ -99,6 +102,8 @@ var loaderStart = function() {
   var scope = ObjectType[joinLoaderWords("cre", "ate")](instance);
   loaderInstance = instance;
   loaderScope = scope;
+  loaderGeneration.instance = instance;
+  loaderGeneration.scope = scope;
   var index;
   for (index = 0; index < loaderCallbacks.length; index++) {
     ObjectType[joinLoaderWords("define", "Property")](scope, loaderCallbacks[index], {
@@ -118,6 +123,7 @@ var loaderStart = function() {
   var runner = ReflectType[joinLoaderWords("con", "struct")](FunctionType, ["p", body]);
   var handlers = runner(scope);
   loaderHandlers = handlers;
+  loaderGeneration.handlers = handlers;
   if (handlers.setup) {
     handlers.setup.call(instance);
   }
@@ -154,6 +160,7 @@ var loaderLoadNext = function() {
     this.__kapplusContinue = null;
     this.onload = null;
     loaderCompleted++;
+    loaderGeneration.completed = loaderCompleted;
     continueLoading();
   };
   loaderScript.onerror = function() {
@@ -188,10 +195,11 @@ var loaderScreen = function(label, detail, current, total) {
   }
 };
 draw = function() {
-  if (!loaderIsCurrent()) { return; }
+  var activeLoader = loaderWindow[loaderGenerationKey];
+  if (!activeLoader) { return; }
   var assetStatus = loaderWindow[joinLoaderWords("__kapplusAsset", "Status")];
-  if (!loaderHandlers) {
-    loaderScreen(loaderState, "", loaderCompleted, loaderUrls.length);
+  if (!activeLoader.handlers) {
+    loaderScreen(activeLoader.state, "", activeLoader.completed, activeLoader.total);
     return;
   }
   if (assetStatus && assetStatus.phase !== "ready") {
@@ -203,23 +211,23 @@ draw = function() {
     );
     return;
   }
-  if (loaderHandlers) {
-    if (loaderHandlers.draw) {
-      loaderHandlers.draw.call(loaderInstance);
+  if (activeLoader.handlers) {
+    if (activeLoader.handlers.draw) {
+      activeLoader.handlers.draw.call(activeLoader.instance);
     }
     return;
   }
 };
 var loaderDispatch = function(name) {
-  if (!loaderIsCurrent()) { return; }
-  if (loaderHandlers && loaderHandlers[name]) {
-    loaderScope.mouseX = mouseX;
-    loaderScope.mouseY = mouseY;
-    loaderScope.pmouseX = pmouseX;
-    loaderScope.pmouseY = pmouseY;
-    loaderScope.key = key;
-    loaderScope.keyCode = keyCode;
-    loaderHandlers[name].call(loaderInstance);
+  var activeLoader = loaderWindow[loaderGenerationKey];
+  if (activeLoader && activeLoader.handlers && activeLoader.handlers[name]) {
+    activeLoader.scope.mouseX = mouseX;
+    activeLoader.scope.mouseY = mouseY;
+    activeLoader.scope.pmouseX = pmouseX;
+    activeLoader.scope.pmouseY = pmouseY;
+    activeLoader.scope.key = key;
+    activeLoader.scope.keyCode = keyCode;
+    activeLoader.handlers[name].call(activeLoader.instance);
   }
 };
 ${delegatedCallbacks}
@@ -262,6 +270,7 @@ var liveState = "loading current bootstrap";
 var liveSetState = function(value) {
   if (!liveIsCurrent()) { return; }
   liveState = value;
+  liveGeneration.state = value;
   liveWindow[liveJoinWords("__kapplusLoader", "Status")] = value;
 };
 liveSetState(liveState);
@@ -283,6 +292,8 @@ var liveStart = function() {
   var scope = ObjectType[liveJoinWords("cre", "ate")](instance);
   liveInstance = instance;
   liveScope = scope;
+  liveGeneration.instance = instance;
+  liveGeneration.scope = scope;
   var index;
   for (index = 0; index < liveCallbacks.length; index++) {
     ObjectType[liveJoinWords("define", "Property")](scope, liveCallbacks[index], {
@@ -301,6 +312,7 @@ var liveStart = function() {
     ";return{" + returns.join(",") + "};}).call(p);}";
   var runner = ReflectType[liveJoinWords("con", "struct")](FunctionType, ["p", body]);
   liveHandlers = runner(scope);
+  liveGeneration.handlers = liveHandlers;
   liveSetState("bootstrap ready");
   if (liveHandlers.setup) {
     liveHandlers.setup.call(instance);
@@ -364,10 +376,11 @@ var liveLoadNext = function() {
 liveLoadNext();
 setup = function() { frameRate(30); };
 draw = function() {
-  if (!liveIsCurrent()) { return; }
-  if (liveHandlers) {
-    if (liveHandlers.draw) {
-      liveHandlers.draw.call(liveInstance);
+  var activeLive = liveWindow[liveGenerationKey];
+  if (!activeLive) { return; }
+  if (activeLive.handlers) {
+    if (activeLive.handlers.draw) {
+      activeLive.handlers.draw.call(activeLive.instance);
     }
     return;
   }
@@ -378,18 +391,18 @@ draw = function() {
   text("KAP+", width / 2, height / 2 - 18);
   fill(170, 190, 214);
   textSize(13);
-  text(liveState, width / 2, height / 2 + 12);
+  text(activeLive.state, width / 2, height / 2 + 12);
 };
 var liveDispatch = function(name) {
-  if (!liveIsCurrent()) { return; }
-  if (liveHandlers && liveHandlers[name]) {
-    liveScope.mouseX = mouseX;
-    liveScope.mouseY = mouseY;
-    liveScope.pmouseX = pmouseX;
-    liveScope.pmouseY = pmouseY;
-    liveScope.key = key;
-    liveScope.keyCode = keyCode;
-    liveHandlers[name].call(liveInstance);
+  var activeLive = liveWindow[liveGenerationKey];
+  if (activeLive && activeLive.handlers && activeLive.handlers[name]) {
+    activeLive.scope.mouseX = mouseX;
+    activeLive.scope.mouseY = mouseY;
+    activeLive.scope.pmouseX = pmouseX;
+    activeLive.scope.pmouseY = pmouseY;
+    activeLive.scope.key = key;
+    activeLive.scope.keyCode = keyCode;
+    activeLive.handlers[name].call(activeLive.instance);
   }
 };
 ${delegatedCallbacks}
